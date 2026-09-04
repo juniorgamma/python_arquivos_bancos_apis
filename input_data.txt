@@ -1,0 +1,4 @@
+Nome: Júnior
+Idade: 45
+Cor: Azul
+Cidade: Goiânia

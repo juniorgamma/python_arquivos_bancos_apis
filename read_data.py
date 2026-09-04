@@ -1,0 +1,6 @@
+with open('input_data.txt', 'r', encoding = 'utf-8') as f:
+    content = f.read()
+    print(content)
+    # ou
+    # for linha in f:
+    # print(linha)
