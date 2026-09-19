@@ -1,36 +1,135 @@
-from sqlalchemy import Column, String, Integer, ForeignKey
+from sqlalchemy import Column, String, Integer, ForeignKey, Date
 from sqlalchemy.orm import relationship
 from database import Base
 
 class Estudante(Base):
     __tablename__ = 'estudantes'
+
     id = Column(Integer, primary_key = True, index = True)
     nome = Column(String(100), nullable = False)
-    email = Column(String(100), nullable = False)
+    email = Column(String(100), nullable = False, unique = True) # email repetido não faz sentido
+
+    # 1:1 -- um estudante tem um perfil
+
     perfil = relationship(
-        'Perfil',                        # relacionamento com classe Perfil
-        back_populates = 'estudante',    # back_populates significa que estou criando relação entre Estudante e Perfil
-        uselist = False,                 # relação é 1 pra 1, cada estudante tem 1 perfil, quando acessar o objeto estudante vai retornar 1 perfil, não uma lista
-        cascade = 'all, delete-orphan'   # all = tudo que for filho do estudante vai ser afetado quando mexer no estudante
-    )                                     # delete-orphan - se eu deletar estudante, o objeto perfil que está relacionado com o estudante tb é deletado
-    
+        'Perfil',
+        back_populates = 'estudante',
+        uselist = False,                            # garante objeto único, não lista
+        cascade = 'all, delete-orphan'              # apagar estudante apaga o perfil dele (dependente, correto)
+    )
+
+    # 1:N -- um estudante tem várias matrículas
+
+    matriculas = relationship(
+        'Matricula',
+        back_populates = 'estudante',
+        cascade = 'all, delete-orphan'             # apagar estudante apaga as matrículas dele (correto)
+    )
+
+    disciplina = relationship(
+        'Disciplina',
+        secondary = 'matriculas',
+        back_populates = 'estudante',
+        viewonly = True
+    )
 class Perfil(Base):
     __tablename__ = 'perfis'
+
     id = Column(Integer, primary_key = True, index = True)
     idade = Column(Integer)
     endereco = Column(String(100), nullable = False)
     estudante_id = Column(
-        Integer, 
+        Integer,
         ForeignKey('estudantes.id'),
-        unique = True                   # estudante é único, ou seja, se tentar criar um outro perfil com mesmo id de estudante ele vai falar
-    )                                   # que não pode ser criado pq o id do estudante já existe na tabela de perfis
-    estudante = relationship(
-        'Estudante',
-        back_populates = 'perfil'      # back_populates não se refere nem à classe, nem à tabela — ele aponta para o nome do atributo relationship do outro lado.
+        unique = True,                              # garante o lado 1 do 1:1 no banco
+        nullable = False
     )
 
-    # A ForeignKey sozinha já cria o vínculo real no banco; o relationship() é uma "conveniência" do ORM para você poder escrever 
-    # estudante.perfil ou perfil.estudante em vez de fazer uma query manual.
-    # Sem esse atalho, para pegar as matrículas de um estudante (no caso do models da pasta fastapi) você precisaria fazer uma query separada tipo:
-    # matriculas = session.query(Matricula).filter(Matricula.estudante_id == estudante.id).all()
+    estudante = relationship(
+        'Estudante',
+        back_populates = 'perfil'
+    )
 
+class Matricula(Base):
+    __tablename__ = 'matriculas'
+
+    id = Column(Integer, primary_key = True, index = True)
+    data_matricula = Column(Date, nullable = False)
+
+    estudante_id = Column(
+        Integer,
+        ForeignKey('estudantes.id'),
+        nullable = False                        
+    )
+    disciplina_id = Column(
+        Integer,
+        ForeignKey('disciplinas.id'),
+        nullable = False
+    )
+
+    estudante = relationship(
+        'Estudante',
+        back_populates = 'matriculas'
+    )
+
+    disciplina = relationship(
+        'Disciplina',
+        back_populates = 'matriculas'
+    )
+
+
+    # Sem unique nas foreignkeys aqui de propósito: um estudante pode ter N matrículas
+    # (uma por disciplina), e uma disciplina pode ter N matrículas
+    # (uma por estudante). Se quiser IMPEDIR matrícula duplicada do
+    # mesmo aluno na mesma disciplina, o certo é uma constraint
+    # composta, não um unique simples numa das colunas isoladas:
+    #
+    # from sqlalchemy import UniqueConstraint
+    # __table_args__ = (UniqueConstraint('estudante_id', 'disciplina_id'),)
+
+    class Disciplina(Base):
+        __tablename__ = 'disciplinas'
+
+        id = Column(Integer, primary_key = True, index = True)
+        nome = Column(String(100), nullable = False)
+        descricao = Column(String(100), nullable = False)
+
+        professor_id = Column(
+            Integer,
+            ForeignKey('professores.id'),
+            nullable = False
+        )
+
+        professor = relationship(
+            'Professor',
+            back_populates = 'disciplinas'
+        )
+
+        # 1:N -- uma disciplina tem várias matrículas (vários alunos matriculados)
+
+        matriculas = relationship(
+            'Matricula',
+            back_populates = 'disciplina',
+            cascade = 'all, delete-orphan'               # apagar a disciplina apaga as matrículas dela (correto)
+        )
+
+        # ATALHO: lista de estudantes passando por 'matriculas'
+        estudantes = relationship(
+            'Estudante',
+            secondary = 'matriculas',        # nome da TABELA do meio (não da classe)
+            back_populates = 'disciplinas',
+            viewonly = True                   # só leitura
+        )
+
+        class Professor(Base):
+            __tablename__ = 'professores'
+
+            id = Column(Integer, primary_key = True, index = True)
+            nome = Column(String(100), nullable = False)
+
+            # 1:N -- um professor leciona várias disciplinas
+
+            disciplina = relationship(
+                'Disciplina',
+                back_populates = 'professor'
+            )
