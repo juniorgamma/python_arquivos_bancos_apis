@@ -65,3 +65,7 @@ class EstudanteCreate(BaseModel):
     nome: str
     email: str
     perfil: PerfilCreate
+
+class EstudanteUpdate(BaseModel):
+    nome: Optional[str] = None
+    email: Optional[str] = None

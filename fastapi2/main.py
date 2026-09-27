@@ -36,19 +36,68 @@ def criar_estudante(estudante: schemas.EstudanteCreate, db: Session = Depends(ge
 def listar_estudantes(db: Session = Depends(get_db)):
     estudantes = db.query(models.Estudante).options(
         joinedload(models.Estudante.perfil),
-        joinedload(models.Estudante.matriculas).joinedload(models.Matricula.disciplina).all()
-    )
+        joinedload(models.Estudante.matriculas).joinedload(models.Matricula.disciplina)
+    ).all()
     return estudantes
 
 @app.get('/estudantes/{estudante_id}', response_model = schemas.Estudante)
 def buscar_estudante(estudante_id: int, db: Session = Depends(get_db)):
     estudante = db.query(models.Estudante).options(
         joinedload(models.Estudante.perfil),
-        joinedload(models.Estudante.matriculas).joinedload(models.Matricula.disciplina).filter(models.Estudante.id == estudante_id).first()
-    )
+        joinedload(models.Estudante.matriculas).joinedload(models.Matricula.disciplina)
+    ).filter(models.Estudante.id == estudante_id).first()
     if estudante is None:
         raise HTTPException(status_code = 404, detail = 'Estudante não encontrado.')
     return estudante
+
+@app.put('/estudantes/{estudante_id}', response_model = schemas.Estudante)
+def atualizar_estudante(estudante_id: int, dados: schemas.EstudanteCreate, db: Session = Depends(get_db)):
+    db_estudante = db.query(models.Estudante).filter(models.Estudante.id == estudante_id).first()
+    if db_estudante is None:
+        raise HTTPException(status_code = 404, detail = 'Estudante não encontrado.')
+    # atualiza campo por campo em vez de recriar o objeto -- assim o
+    # SQLAlchemy só gera um UPDATE, e o id/relacionamentos existentes
+    # não se perdem
+    db_estudante.nome = dados.nome
+    db_estudante.email = dados.email
+    # perfil é 1:1 -- se já existe, atualiza os campos dele;
+    # se não existe (estudante criado sem perfil), cria agora
+    if db_estudante.perfil:
+        db_estudante.perfil.idade = dados.perfil.idade
+        db_estudante.perfil.endereco = dados.perfil.endereco
+    else:
+        db_estudante.perfil = models.Perfil(**dados.perfil.dict())
+    db.commit()
+    db.refresh(db_estudante)
+    return db_estudante
+
+@app.patch('/estudantes/{estudante_id}', response_model = schemas.Estudante)
+def atualizar_estudante_parcial(estudante_id: int, dados: schemas.EstudanteUpdate, db: Session = Depends(get_db)):
+    db_estudante = db.query(models.Estudante).filter(models.Estudante.id == estudante_id).first()
+    if db_estudante is None:
+        raise HTTPException(status_code = 404, detail = 'Estudante não encontrado.')
+    # exclude_unset=True é a peça-chave: pega só os campos que o
+    # cliente realmente enviou no corpo, ignora os que ficaram None
+    # por padrão (que não significam "apague isso", significam
+    # "não mexi nisso")
+    atualizacoes = dados.dict(exclude_unset = True)
+    for campo, valor in atualizacoes.items():
+        setattr(db_estudante, campo, valor)
+    db.commit()
+    db.refresh(db_estudante)
+    return db_estudante
+
+@app.delete('/estudantes/{estudante_id}')
+def deletar_estudante(estudante_id: int, db: Session = Depends(get_db)):
+    db_estudante = db.query(models.Estudante).filter(models.Estudante.id == estudante_id).first()
+    if db_estudante is None:
+        raise HTTPException(status_code = 404, detail = 'Estudante não encontrado.')
+    db.delete(db_estudante)
+    db.commit()
+    # sem response_model aqui de propósito -- não tem um "recurso" pra
+    # devolver depois de apagado, só uma confirmação
+    return {'detail': 'Estudante removido com sucesso.'}
+
 
 # ---------- Professor ----------
 
@@ -63,6 +112,7 @@ def criar_professor(professor: schemas.ProfessorCreate, db: Session = Depends(ge
 @app.get('/professores/', response_model = List[schemas.Professor])
 def listar_professores(db: Session = Depends(get_db)):
     professores = db.query(models.Professor).all()
+    return professores
 
 # ---------- Disciplina ----------
 
@@ -80,11 +130,41 @@ def criar_disciplina(disciplina: schemas.DisciplinaCreate, db: Session = Depends
     db.add(db_disciplina)
     db.commit()
     db.refresh(db_disciplina)
-    return db.disciplina
+    return db_disciplina
 
 @app.get('/disciplinas/', response_model = List[schemas.Disciplina])
 def listar_disciplinas(db: Session = Depends(get_db)):
     disciplinas = db.query(models.Disciplina).options(joinedload(models.Disciplina.professor)).all()
+    return disciplinas
+
+@app.put('/disciplinas/{disciplina_id}', response_model = schemas.Disciplina)
+def atualizar_disciplina(disciplina_id: int, dados: schemas.DisciplinaCreate, db: Session = Depends(get_db)):
+    db_disciplina = db.query(models.Disciplina).options(joinedload(models.Disciplina.professor)).filter(models.Disciplina.id == disciplina_id).first()
+    if db_disciplina is None:
+        raise HTTPException(status_code = 404, detail = 'Disciplina não encontrada.')
+    # se o professor_id vier diferente, precisa confirmar que esse
+    # professor existe -- mesma checagem que já fazemos em criar_disciplina
+    professor = db.query(models.Professor).filter(models.Professor.id == dados.professor_id).first()
+    if professor is None:
+        raise HTTPException(status_code = 404, detail = 'Professor não encontrado.')
+    db_disciplina.nome = dados.nome
+    db_disciplina.descricao = dados.descricao
+    db_disciplina.professor_id = dados.professor_id     # troca o vínculo, não o nome do professor
+    db.commit()
+    db.refresh(db_disciplina)
+    return db_disciplina
+
+@app.delete('/disciplinas/{disciplina_id}')
+def deletar_disciplina(disciplina_id:int, db: Session = Depends(get_db)):
+    db_disciplina = db.query(models.Disciplina).filter(models.Disciplina.id == disciplina_id).first()
+    # Também tirei o joinedload(models.Disciplina.professor) — pra deletar, você não precisa carregar o professor junto, 
+    # é uma query a mais sem necessidade. joinedload só compensa quando você vai devolver dados relacionados na resposta, 
+    # como no PUT e nos GET.
+    if db_disciplina is None:
+        raise HTTPException(status_code = 404, detail = 'Disciplina não encontrada.')
+    db.delete(db_disciplina)
+    db.commit()
+    return {'detail': 'Disciplina removida com sucesso.'}
 
 # ---------- Matrícula ----------
 
@@ -93,11 +173,11 @@ def listar_disciplinas(db: Session = Depends(get_db)):
 
 @app.post('/estudantes/{estudante_id}/matriculas', response_model = schemas.Matricula)
 def matricular_estudante(estudante_id: int, matricula: schemas.MatriculaCreate, db: Session = Depends(get_db)):
-    estudante = db.query(models.Estudante).filter(models.Estudante.id == estudante_id)
+    estudante = db.query(models.Estudante).filter(models.Estudante.id == estudante_id).first()
     if estudante is None:
         raise HTTPException(status_code = 404, detail = 'Estudante não encontrado.')
     
-    disciplina = db.query(models.Disciplina).filter(models.Disciplina.id == matricula.disciplina_id. first())
+    disciplina = db.query(models.Disciplina).filter(models.Disciplina.id == matricula.disciplina_id).first()
     if disciplina is None:
         raise HTTPException(status_code = 404, detail = 'Disciplina não encontrada.')
     db_matricula = models.Matricula(
@@ -132,3 +212,51 @@ def matricular_estudante(estudante_id: int, matricula: schemas.MatriculaCreate, 
 # Não criei DELETE nem PUT/PATCH ainda — se quiser, digo o que muda por causa do
 # cascade='all, delete-orphan' que você já tem nos models (apagar estudante já
 # apaga perfil e matrículas em cascata, então o DELETE fica simples).
+
+# PUT usa EstudanteCreate, não um schema novo. Os dados que você precisa pra
+# atualizar são os mesmos que você precisa pra criar (nome, email, perfil) —
+# reaproveitar evita duplicar schema à toa. Se um dia você quiser permitir
+# atualização parcial (só o nome, por exemplo, sem mexer no resto), aí sim
+# precisaria de um schema EstudanteUpdate com todos os campos Optional, e um
+# PATCH em vez de PUT.
+#
+# Por que atualizar campo por campo em vez de
+# db_estudante = models.Estudante(**dados.dict()). Essa segunda forma criaria
+# um objeto novo, sem id, sem estar ligado à sessão do banco — o SQLAlchemy não
+# saberia que é pra atualizar a linha existente, e você perderia o controle sobre
+# o que fazer com o perfil já existente.
+#
+# Por que checar if db_estudante.perfil antes de atualizar. Porque seu model
+# deixa perfil ser opcional na leitura (Optional[Perfil] = None), mas na hora de
+# criar (EstudanteCreate) você exige perfil sempre. Ainda assim, é mais seguro
+# checar — protege contra um estudante que, por qualquer motivo (import direto no
+# banco, migração, etc.), tenha ficado sem perfil.
+#
+# Por que db.delete() sozinho já basta, sem apagar perfil/matrículas manualmente.
+# Você já configurou cascade='all, delete-orphan' em Estudante.perfil e
+# Estudante.matriculas no models.py. Isso diz ao SQLAlchemy: "quando esse
+# estudante for apagado, apague também tudo que está pendurado nesses
+# relationships". Sem esse cascade, apagar o estudante daria erro de violação de
+# FK (o banco recusaria, porque ainda existem linhas em perfis/matriculas
+# apontando pra um estudante_id que não existe mais).
+#
+# Sem response_model no DELETE. response_model serve pra validar/formatar o
+# retorno como um schema Pydantic — mas depois de deletar, não faz sentido
+# devolver "o estudante" (ele não existe mais). Por isso retorno um dicionário
+# simples de confirmação.
+#
+# Quer tentar escrever você mesmo o PUT/DELETE de Disciplina (que tem uma FK a
+# mais, professor_id, pra você praticar a checagem de existência) e eu reviso?
+
+# Por que exclude_unset=True é essencial aqui: sem ele, dados.dict() devolveria
+# {"nome": None, "email": None} pra quem mandou só {"nome": "Ana"} — porque os
+# campos Optional têm None como valor padrão. Aí você acabaria apagando o email
+# do estudante sem querer. exclude_unset=True distingue "o cliente não mandou
+# esse campo" de "o cliente mandou null de propósito".
+#
+# Resumo prático
+#                   PUT                     PATCH
+# Schema            campos obrigatórios     campos Optional
+# Cliente envia     recurso completo        só o que muda
+# Campo faltando    erro 422                ignorado (não altera)
+# No código         atribui direto          exclude_unset=True + loop
