@@ -26,10 +26,10 @@ class Estudante(Base):
         cascade = 'all, delete-orphan'             # apagar estudante apaga as matrículas dele (correto)
     )
 
-    disciplina = relationship(
+    disciplinas = relationship(
         'Disciplina',
         secondary = 'matriculas',
-        back_populates = 'estudante',
+        back_populates = 'estudantes',
         viewonly = True
     )
 class Perfil(Base):
@@ -87,49 +87,49 @@ class Matricula(Base):
     # from sqlalchemy import UniqueConstraint
     # __table_args__ = (UniqueConstraint('estudante_id', 'disciplina_id'),)
 
-    class Disciplina(Base):
-        __tablename__ = 'disciplinas'
+class Disciplina(Base):
+    __tablename__ = 'disciplinas'
 
-        id = Column(Integer, primary_key = True, index = True)
-        nome = Column(String(100), nullable = False)
-        descricao = Column(String(100), nullable = False)
+    id = Column(Integer, primary_key = True, index = True)
+    nome = Column(String(100), nullable = False)
+    descricao = Column(String(100), nullable = False)
 
-        professor_id = Column(
-            Integer,
-            ForeignKey('professores.id'),
-            nullable = False
-        )
+    professor_id = Column(
+        Integer,
+        ForeignKey('professores.id'),
+        nullable = False
+    )
 
-        professor = relationship(
-            'Professor',
-            back_populates = 'disciplinas'
-        )
+    professor = relationship(
+        'Professor',
+        back_populates = 'disciplinas'
+    )
 
-        # 1:N -- uma disciplina tem várias matrículas (vários alunos matriculados)
+    # 1:N -- uma disciplina tem várias matrículas (vários alunos matriculados)
 
-        matriculas = relationship(
-            'Matricula',
-            back_populates = 'disciplina',
-            cascade = 'all, delete-orphan'               # apagar a disciplina apaga as matrículas dela (correto)
-        )
+    matriculas = relationship(
+        'Matricula',
+        back_populates = 'disciplina',
+        cascade = 'all, delete-orphan'               # apagar a disciplina apaga as matrículas dela (correto)
+    )
 
-        # ATALHO: lista de estudantes passando por 'matriculas'
-        estudantes = relationship(
-            'Estudante',
-            secondary = 'matriculas',        # nome da TABELA do meio (não da classe)
-            back_populates = 'disciplinas',
-            viewonly = True                   # só leitura
-        )
+    # ATALHO: lista de estudantes passando por 'matriculas'
+    estudantes = relationship(
+        'Estudante',
+        secondary = 'matriculas',        # nome da TABELA do meio (não da classe)
+        back_populates = 'disciplinas',
+        viewonly = True                   # só leitura
+    )
 
-        class Professor(Base):
-            __tablename__ = 'professores'
+class Professor(Base):
+    __tablename__ = 'professores'
 
-            id = Column(Integer, primary_key = True, index = True)
-            nome = Column(String(100), nullable = False)
+    id = Column(Integer, primary_key = True, index = True)
+    nome = Column(String(100), nullable = False)
 
-            # 1:N -- um professor leciona várias disciplinas
+    # 1:N -- um professor leciona várias disciplinas
 
-            disciplina = relationship(
-                'Disciplina',
-                back_populates = 'professor'
-            )
+    disciplinas = relationship(
+        'Disciplina',
+        back_populates = 'professor'
+    )

@@ -56,7 +56,7 @@ pg_ctl.exe → programa que controla o PostgreSQL.
 -l "...postgres.log" → manda as mensagens do PostgreSQL para um arquivo de log.
 start → manda o PostgreSQL iniciar.
 
-Comandos dentro do shell do POSTGRESQL: (psql -U postgres)
+Comandos dentro do shell do POSTGRESQL: (psql -U postgres) WSL = psql -h ip_do_windows -U postgres -d nome_do_banco -p 5432
 
 CREATE DATABASE escola;
 
@@ -65,3 +65,15 @@ Pra alterar senha: ALTER USER postgres WITH PASSWORD 'postgres';
 Rodar app: uvicorn main:app --reload
 
 ip route show default
+
+
+Comandos úteis pra explorar (não são SQL puro, são atalhos do próprio psql — começam com \)
+sql
+\dt
+
+Lista todas as tabelas do banco escola. Deve mostrar estudantes, perfis, matriculas, disciplinas, professores.
+
+sql
+\d matriculas
+
+Mostra a estrutura da tabela matriculas — colunas, tipos, constraints. É aqui que você vai confirmar visualmente se disciplina_id existe ou não (a causa do erro anterior).

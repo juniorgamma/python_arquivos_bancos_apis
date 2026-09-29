@@ -11,7 +11,7 @@ models.Base.metadata.create_all(bind = engine)
 app = FastAPI()
 
 def get_db():
-    db = SessionLocal()
+    db = SessionLocal()  # criada e fechada automaticamente a cada requisição HTTP (por causa do yield/finally)
     try:
         yield db
     finally:
@@ -113,6 +113,46 @@ def criar_professor(professor: schemas.ProfessorCreate, db: Session = Depends(ge
 def listar_professores(db: Session = Depends(get_db)):
     professores = db.query(models.Professor).all()
     return professores
+
+@app.put('/professores/{professor_id}', response_model = schemas.Professor)
+def atualizar_professor(professor_id: int, dados: schemas.ProfessorCreate, db: Session = Depends(get_db)):
+    db_professor = db.query(models.Professor).filter(models.Professor.id == professor_id).first()
+    if db_professor is None:
+        raise HTTPException(status_code = 404, detail = 'Professor não encontrado.')
+    db_professor.nome = dados.nome
+    db.commit()
+    db.refresh(db_professor)
+    return db_professor
+
+@app.delete('/professores/{professor_id}')
+def deletar_professor(professor_id: int, novo_professor_id: int = None, db: Session = Depends(get_db)):
+    db_professor = db.query(models.Professor).filter(models.Professor.id == professor_id).first()
+    if db_professor is None:
+        raise HTTPException(status_code = 404, detail = 'Professor não encontrado.')
+    # busca as disciplinas desse professor -- sem isso não temos como
+    # saber se existe algo bloqueando a exclusão
+    disciplinas = db.query(models.Disciplina).filter(models.Disciplina.professor_id == professor_id).all()
+    if disciplinas:
+        # tem disciplinas vinculadas -- só prossegue se o cliente
+        # informou pra quem transferir
+        if novo_professor_id is None:
+            raise HTTPException(
+                status_code = 400, 
+                detail = f'Professor possui {len(disciplinas)} disciplina(s) vinculada(s). Informe novo_professor_id para reatribuí-las antes de excluir'
+            )
+        # não pode "transferir" pra ele mesmo -- isso não resolveria nada
+        if novo_professor_id == professor_id:
+            raise HTTPException(status_code = 400, detail = 'novo_professor_id deve ser diferente do professor a ser excluído')
+        # confirma que o novo professor de destino existe
+        novo_professor = db.query(models.Professor).filter(models.Professor.id == novo_professor_id).first()
+        if novo_professor is None:
+            raise HTTPException(status_code = 404, detail = 'Novo professor não encontrado.')
+        # reatribui cada disciplina antes de apagar o professor original
+        for disciplina in disciplinas:
+            disciplina.professor = novo_professor # objeto, não o id
+    db.delete(db_professor)
+    db.commit()
+    return {'detail': 'Professor removido com sucesso.'}
 
 # ---------- Disciplina ----------
 
@@ -260,3 +300,33 @@ def matricular_estudante(estudante_id: int, matricula: schemas.MatriculaCreate, 
 # Cliente envia     recurso completo        só o que muda
 # Campo faltando    erro 422                ignorado (não altera)
 # No código         atribui direto          exclude_unset=True + loop
+
+# Por que cada decisão
+#
+# Por que 400, não 404, quando falta novo_professor_id. 404 significa
+# "o recurso que você pediu não existe" — mas o professor existe,
+# o problema é que a exclusão dele, do jeito que foi pedida, é
+# inválida (falta informação). 400 Bad Request é o código certo pra
+# "sua requisição está incompleta/mal formada".
+#
+# Por que buscar as disciplinas com uma query separada, em vez de usar
+# db_professor.disciplinas. As duas formas funcionariam aqui
+# (o relationship já te devolveria a lista). Usei a query direta só
+# porque acho mais explícito nesse contexto — mas se você preferir
+# db_professor.disciplinas, funciona igual, é escolha de estilo.
+#
+# Por que checar novo_professor_id == professor_id. Sem essa checagem,
+# alguém poderia mandar DELETE /professores/5?novo_professor_id=5 —
+# o código passaria pela checagem de "professor existe" (ele existe,
+# é o mesmo!), mas o professor está prestes a ser apagado, então a
+# "reatribuição" não faria sentido nenhum.
+#
+# Por que o reassign acontece antes do db.delete(), e não depois.
+# Se você tentasse db.delete(db_professor) primeiro, o Postgres
+# recusaria imediatamente (violação de FK), porque ainda existiriam
+# disciplinas apontando pro professor_id que está sendo removido —
+# nem chegaria a executar o resto.
+#
+# Sem response_model de novo — mesmo raciocínio do
+# deletar_estudante/deletar_disciplina: depois de apagar, não sobra
+# um "recurso professor" pra formatar.

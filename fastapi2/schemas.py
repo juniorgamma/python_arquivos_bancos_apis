@@ -55,6 +55,7 @@ class MatriculaCreate(BaseModel):
 class Estudante(BaseModel):
     id: int
     nome:str
+    email: str
     perfil: Optional[Perfil] = None
     matriculas: List[Matricula] = []    # lista de matrículas do estudante
 
